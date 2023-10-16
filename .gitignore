@@ -1,0 +1,5 @@
+.cache/clangd/index
+.pio
+.ccls
+Makefile
+compile_commands.json
