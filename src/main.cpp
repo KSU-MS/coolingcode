@@ -5,10 +5,13 @@
 #include <Metro.h>
 #include <SD.h>
 #include <SPI.h>
+#include <TimeLib.h>
 #include <Wire.h>
 
 // Global things
-String printname;
+uint64_t global_ms_offset;     // Time calc things
+uint64_t last_sec_epoch;       // Time calc things 2
+String printname;              // Its the string for to display filename
 Metro timerFlush = Metro(500); // a timer to write to sd
 Metro displayUp = Metro(500);  // a timer to update display
 File logger;                   // a var to actually write to said sd
@@ -19,17 +22,13 @@ File logger;                   // a var to actually write to said sd
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Thermo copples asdasdd2123
-#define MAXDO 3
-#define MAXCLK 5
-int MAXCS1 = 6;
-int MAXCS2 = 7;
-int MAXCS3 = 8;
-int MAXCS4 = 9;
-int flow = 24;
-Adafruit_MAX31855 RadIn(MAXCLK, MAXCS1, MAXDO);
-Adafruit_MAX31855 RadOut(MAXCLK, MAXCS2, MAXDO);
-Adafruit_MAX31855 EngIn(MAXCLK, MAXCS3, MAXDO);
-Adafruit_MAX31855 EngOut(MAXCLK, MAXCS4, MAXDO);
+#define MAXDO 12
+#define MAXCLK 13
+Adafruit_MAX31855 RadIn(MAXCLK, 7, MAXDO);
+Adafruit_MAX31855 RadOut(MAXCLK, 6, MAXDO);
+Adafruit_MAX31855 EngIn(MAXCLK, 5, MAXDO);
+Adafruit_MAX31855 EngOut(MAXCLK, 2, MAXDO);
+int flowMeter = 24;
 
 void drawThing(String msg, String pos); // Draw something idk
 void readSensors();                     // Read shit
@@ -38,8 +37,18 @@ void readSensors();                     // Read shit
 void setup() {
   // Wait for Serial to start
   Serial.begin(9600);
-  while (!Serial) {
+  // while (!Serial)
+  //   delay(1);
+
+  // COMMENT OUT THIS LINE AND PUSH ONCE RTC HAS BEEN SET!!!!
+  // Teensy3Clock.set(1660351622); // set time (epoch) at powerup
+  if (timeStatus() != timeSet) {
+    Serial.println("RTC not set up, call Teensy3Clock.set(epoch)");
+  } else {
+    Serial.println("System date/time set to: ");
+    Serial.print(Teensy3Clock.get());
   }
+  last_sec_epoch = Teensy3Clock.get();
 
   // Wait for display
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -50,22 +59,7 @@ void setup() {
   display.display(); // You must call .display() after draw command to apply
 
   Serial.print("Initializing sensors...");
-  if (!RadIn.begin()) {
-    Serial.println("ERROR.");
-    while (1)
-      delay(10);
-  }
-  if (!RadOut.begin()) {
-    Serial.println("ERROR.");
-    while (1)
-      delay(10);
-  }
-  if (!EngIn.begin()) {
-    Serial.println("ERROR.");
-    while (1)
-      delay(10);
-  }
-  if (!EngOut.begin()) {
+  if (!RadIn.begin() || !RadOut.begin() || !EngIn.begin() || !EngOut.begin()) {
     Serial.println("ERROR.");
     while (1)
       delay(10);
@@ -103,7 +97,7 @@ void setup() {
   }
 
   // Print guide at top of CSV
-  logger.println("ID,value");
+  logger.println("time,name,value,");
   logger.flush();
 
   // Do te ting
@@ -115,11 +109,15 @@ void loop() {
   // Update display
   if (displayUp.check()) {
     display.clearDisplay();
-    drawThing(RadIn.readInternal(), "1");
-    drawThing(RadOut.readInternal(), "2");
-    drawThing(EngIn.readInternal(), "3");
-    drawThing(EngOut.readInternal(), "4");
-    drawThing(analogRead(flow), "5");
+    drawThing(RadIn.readFahrenheit(), "1");
+    Serial.println(RadIn.readFahrenheit());
+    drawThing(RadOut.readFahrenheit(), "2");
+    Serial.println(RadOut.readFahrenheit());
+    drawThing(EngIn.readFahrenheit(), "3");
+    Serial.println(EngIn.readFahrenheit());
+    drawThing(EngOut.readFahrenheit(), "4");
+    Serial.println(EngOut.readFahrenheit());
+    // drawThing(analogRead(flow), "5");
   }
 
   // Flush if timer ticked
@@ -132,21 +130,36 @@ void loop() {
 
 // It do in fact start reading shit
 void readSensors() {
-  logger.print("RadIn");
-  logger.println(RadIn.readInternal());
-  logger.print("RadOut");
-  logger.println(RadOut.readInternal());
-  logger.print("EngIn");
-  logger.println(EngIn.readInternal());
-  logger.print("EngOut");
-  logger.println(EngOut.readInternal());
-  logger.print("Flow");
-  logger.println(analogRead(flow), 9);
+
+  // Calculate Time
+  uint64_t sec_epoch = Teensy3Clock.get();
+  if (sec_epoch != last_sec_epoch) {
+    global_ms_offset = millis() % 1000;
+    last_sec_epoch = sec_epoch;
+  }
+  uint64_t current_time =
+      sec_epoch * 1000 + (millis() - global_ms_offset) % 1000;
+
+  logger.print(current_time);
+  logger.print(",RadIn,");
+  logger.println(RadIn.readFahrenheit());
+  logger.print(current_time);
+  logger.print(",RadOut,");
+  logger.println(RadOut.readFahrenheit());
+  logger.print(current_time);
+  logger.print(",EngIn,");
+  logger.println(EngIn.readFahrenheit());
+  logger.print(current_time);
+  logger.print(",EngOut,");
+  logger.println(EngOut.readFahrenheit());
+  logger.print(current_time);
+  logger.print(",Flow,");
+  logger.println(analogRead(flowMeter), 9);
 }
 
 // It take string in, and it puts shit onto display
 void drawThing(String msg, String pos) {
-  display.setTextSize(2);              // Normal 1:1 pixel scale
+  display.setTextSize(1);              // Normal 1:1 pixel scale
   display.setTextColor(SSD1306_WHITE); // Draw white text
   display.cp437(true);                 // Use full 256 char 'Code Page 437' font
 
@@ -155,15 +168,15 @@ void drawThing(String msg, String pos) {
     display.print("RadIn: ");
     display.print(msg);
   } else if (pos == "2") {
-    display.setCursor(16, 0);
-    display.print("RadIn: ");
-    display.print(msg);
-  } else if (pos == "3") {
-    display.setCursor(32, 0);
+    display.setCursor(0, 16);
     display.print("RadOut: ");
     display.print(msg);
+  } else if (pos == "3") {
+    display.setCursor(0, 32);
+    display.print("EngIn: ");
+    display.print(msg);
   } else if (pos == "4") {
-    display.setCursor(48, 0);
+    display.setCursor(0, 48);
     display.print("EngOut: ");
     display.print(msg);
   } else if (pos == "5") {

@@ -3,3 +3,5 @@
 .ccls
 Makefile
 compile_commands.json
+make: *** [Makefile
+make: *** [Makefile
