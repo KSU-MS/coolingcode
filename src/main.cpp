@@ -13,13 +13,20 @@ uint64_t global_ms_offset;     // Time calc things
 uint64_t last_sec_epoch;       // Time calc things 2
 String printname;              // Its the string for to display filename
 Metro timerFlush = Metro(500); // a timer to write to sd
-Metro displayUp = Metro(500);  // a timer to update display
+Metro displayUp = Metro(10);  // a timer to update display
 File logger;                   // a var to actually write to said sd
 #define SCREEN_WIDTH 128       // OLED display width, in pixels
 #define SCREEN_HEIGHT 64       // OLED display height, in pixels
 #define OLED_RESET -1          // Reset pin # use -1 if unsure
 #define SCREEN_ADDRESS 0x3c    // See datasheet for Address
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// EMA variables for smoothing the reads
+double AvgRadIn = 0; // starting EMA value
+double AvgRadOut = 0; // starting EMA value
+double AvgEngIn = 0; // starting EMA value
+double AvgEngOut = 0; // starting EMA value
+double smoothing = 0.9; 
 
 // Thermo copples asdasdd2123
 #define MAXDO 12
@@ -32,6 +39,8 @@ int flowMeter = 24;
 
 void drawThing(String msg, String pos); // Draw something idk
 void readSensors();                     // Read shit
+void ReadAvgSensors();                  // Read avg shit
+double ema(double newValue, double previousEma, double smoothingFactor);                         // EMA shit
 
 // Run once on startup
 void setup() {
@@ -107,16 +116,30 @@ void setup() {
 // Loops forever
 void loop() {
   // Update display
+  // if (displayUp.check()) {
+  //   display.clearDisplay();
+  //   drawThing(RadIn.readCelsius(), "1");
+  //   Serial.println(RadIn.readCelsius());
+  //   drawThing(RadOut.readCelsius(), "2");
+  //   Serial.println(RadOut.readCelsius());
+  //   drawThing(EngIn.readCelsius(), "3");
+  //   Serial.println(EngIn.readCelsius());
+  //   drawThing(EngOut.readCelsius(), "4");
+  //   Serial.println(EngOut.readCelsius());
+  //   // drawThing(analogRead(flow), "5");
+  // }
+
+  // Update display Averages
   if (displayUp.check()) {
     display.clearDisplay();
-    drawThing(RadIn.readFahrenheit(), "1");
-    Serial.println(RadIn.readFahrenheit());
-    drawThing(RadOut.readFahrenheit(), "2");
-    Serial.println(RadOut.readFahrenheit());
-    drawThing(EngIn.readFahrenheit(), "3");
-    Serial.println(EngIn.readFahrenheit());
-    drawThing(EngOut.readFahrenheit(), "4");
-    Serial.println(EngOut.readFahrenheit());
+    drawThing(AvgRadIn, "1");
+    Serial.println(AvgRadIn);
+    drawThing(AvgRadOut, "2");
+    Serial.println(AvgRadOut);
+    drawThing(AvgEngIn, "3");
+    Serial.println(AvgEngIn);
+    drawThing(AvgEngOut, "4");
+    Serial.println(AvgEngOut);
     // drawThing(analogRead(flow), "5");
   }
 
@@ -125,9 +148,21 @@ void loop() {
     logger.flush();
   }
 
-  readSensors();
+  ReadAvgSensors();
+  // readSensors();
 }
 
+double ema(double newValue, double previousEma, double smoothingFactor) {
+  return smoothingFactor * newValue + (1 - smoothingFactor) * previousEma;
+}
+
+void ReadAvgSensors() {
+  AvgEngIn = ema(EngIn.readCelsius(), AvgEngIn, smoothing); // new EMA incorporating latest value
+  AvgEngOut = ema(EngOut.readCelsius(), AvgEngOut, smoothing); // update EMA again
+  AvgRadIn = ema(RadIn.readCelsius(), AvgRadIn, smoothing); // update EMA again
+  AvgRadOut = ema(RadOut.readCelsius(), AvgRadOut, smoothing); // update EMA again
+}
+ 
 // It do in fact start reading shit
 void readSensors() {
 
